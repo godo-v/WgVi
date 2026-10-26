@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https: http://localhost:* http://127.0.0.1:*"
+    />
+    <title>WagVitals</title>
+    <link rel="icon" href="icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="js/main.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">🐾</span>
+        <span>WagVitals</span>
+        <span class="tag">prototype</span>
+      </div>
+      <div class="status" id="status" data-state="disconnected" role="status">
+        <span class="dot"></span><span id="status-text">Not connected</span>
+      </div>
+      <div class="actions">
+        <button id="btn-connect" class="primary">Connect collar</button>
+        <span class="sim">
+          <select id="sim-scenario" aria-label="Simulator scenario"></select>
+          <button id="btn-sim">Simulate</button>
+        </span>
+        <button id="btn-disconnect" hidden>Disconnect</button>
+        <button id="btn-settings" class="icon" aria-label="Settings" title="Settings">⚙</button>
+      </div>
+    </header>
+
+    <p id="banner" class="banner" hidden></p>
+
+    <main class="grid">
+      <section class="card activity">
+        <h2 id="dog-name">Activity</h2>
+        <div class="activity-now">
+          <span id="act-icon" class="act-icon" aria-hidden="true">·</span>
+          <div>
+            <div id="act-label" class="act-label">Waiting for data</div>
+            <div id="act-confidence" class="muted">Connect the collar or start the simulator.</div>
+          </div>
+        </div>
+        <p id="act-reason" class="reason muted"></p>
+        <div id="act-scores" class="bars" aria-label="Activity scores"></div>
+      </section>
+
+      <section class="card">
+        <h2>Heart rate</h2>
+        <div class="big"><span id="hr-value">—</span><small>bpm</small></div>
+        <div id="hr-sub" class="muted"></div>
+        <canvas id="hr-chart" class="chart small" aria-label="Heart rate, last 5 minutes"></canvas>
+      </section>
+
+      <section class="card">
+        <h2>Temperature</h2>
+        <div class="big"><span id="temp-value">—</span><small id="temp-unit">°C</small></div>
+        <div id="temp-sub" class="muted"></div>
+      </section>
+
+      <section class="card">
+        <h2>Breathing</h2>
+        <div class="big"><span id="resp-value">—</span><small>/min</small></div>
+        <div id="resp-sub" class="muted"></div>
+      </section>
+
+      <section class="card wide">
+        <h2>Accelerometer</h2>
+        <canvas id="accel-chart" class="chart" aria-label="Accelerometer x, y, z, last 10 seconds"></canvas>
+        <div class="legend"><span class="k x">x</span><span class="k y">y</span><span class="k z">z</span><span id="accel-sub" class="muted"></span></div>
+      </section>
+
+      <section class="card">
+        <h2>Today</h2>
+        <div id="goal-text" class="goal-text">0 / 60 active min</div>
+        <div class="progress"><span id="goal-bar"></span></div>
+        <div id="today-bars" class="bars"></div>
+        <p id="today-tip" class="muted"></p>
+      </section>
+
+      <section class="card">
+        <h2>Gait <span class="tag">experimental</span></h2>
+        <dl class="stats">
+          <dt>Symmetry</dt><dd id="gait-sym">—</dd>
+          <dt>Regularity</dt><dd id="gait-reg">—</dd>
+          <dt>Step rate</dt><dd id="gait-cad">—</dd>
+        </dl>
+        <p class="muted">Measured from the head bob while walking. Needs about 10 s of walking.</p>
+      </section>
+
+      <section class="card">
+        <h2>Alerts</h2>
+        <ul id="alerts" class="alerts"><li class="muted">No alerts</li></ul>
+      </section>
+
+      <section class="card">
+        <h2>Collar</h2>
+        <dl class="stats">
+          <dt>Battery</dt><dd id="col-battery">—</dd>
+          <dt>Weight</dt><dd id="col-weight">—</dd>
+          <dt>Sample rate</dt><dd id="col-rate">—</dd>
+          <dt>Firmware</dt><dd id="col-fw">—</dd>
+          <dt>Cloud sync</dt><dd id="col-cloud">Off</dd>
+        </dl>
+      </section>
+
+      <section class="card">
+        <h2>Record data</h2>
+        <label class="field">What is the dog really doing?
+          <select id="rec-label">
+            <option value="">(no label)</option>
+            <option>resting</option><option>sleeping</option><option>light</option>
+            <option>walking</option><option>running</option><option>playing</option><option>other</option>
+          </select>
+        </label>
+        <div class="row">
+          <button id="btn-record">Start recording</button>
+          <button id="btn-export" disabled>Export CSV</button>
+        </div>
+        <p id="rec-status" class="muted">Labelled recordings are used to calibrate activity detection.</p>
+      </section>
+
+      <section class="card wide">
+        <details id="log-details">
+          <summary>Bluetooth log</summary>
+          <pre id="log" class="log"></pre>
+        </details>
+      </section>
+    </main>
+
+    <dialog id="settings">
+      <form method="dialog" id="settings-form">
+        <h2>Settings</h2>
+        <fieldset>
+          <legend>Dog</legend>
+          <label class="field">Name <input name="name" maxlength="40" /></label>
+          <label class="field">Weight (kg) <input name="weightKg" type="number" min="0.5" max="120" step="0.1" required /></label>
+          <label class="field">Ideal weight (kg, optional) <input name="idealWeightKg" type="number" min="0.5" max="120" step="0.1" /></label>
+          <label class="field">Age (years) <input name="ageYears" type="number" min="0" max="30" step="0.5" /></label>
+        </fieldset>
+        <fieldset>
+          <legend>Display &amp; Bluetooth</legend>
+          <label class="check"><input name="fahrenheit" type="checkbox" /> Show temperature in °F</label>
+          <label class="check"><input name="showAllDevices" type="checkbox" /> List every nearby Bluetooth device (debugging)</label>
+        </fieldset>
+        <fieldset>
+          <legend>Cloud sync</legend>
+          <label class="check"><input name="cloudEnabled" type="checkbox" /> Upload one summary per minute</label>
+          <label class="field">Endpoint URL <input name="endpoint" type="url" placeholder="https://your-service.run.app" /></label>
+          <label class="field">API key <input name="apiKey" type="password" autocomplete="off" /></label>
+          <p class="muted">Deploy the server in <code>/cloud</code> with your cloud credits, then paste its URL and key here.</p>
+        </fieldset>
+        <div class="row end">
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button value="save" class="primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="device-picker">
+      <h2>Choose your collar</h2>
+      <p class="muted">Scanning for nearby WagVitals collars…</p>
+      <ul id="device-list" class="device-list"></ul>
+      <div class="row end"><button id="btn-picker-cancel">Cancel</button></div>
+    </dialog>
+  </body>
+</html>

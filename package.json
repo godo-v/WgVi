@@ -1,0 +1,65 @@
+{
+  "name": "wagvitals-app",
+  "productName": "WagVitals",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WagVitals smart-collar companion app (desktop prototype). Receives accelerometer, heart rate, temperature and respiration data from a Nordic nRF52840 collar over Bluetooth LE and classifies dog activity.",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "web": "node scripts/serve.js",
+    "test": "node --test \"test/*.test.js\"",
+    "dist": "electron-builder --publish never",
+    "cloud": "node cloud/server.js"
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "26.17.0"
+  },
+  "author": "WagVitals senior design team",
+  "license": "UNLICENSED",
+  "build": {
+    "appId": "com.wagvitals.prototype",
+    "productName": "WagVitals",
+    "files": [
+      "electron/**",
+      "app/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "artifactName": "WagVitals-${version}-${os}-${arch}.${ext}",
+    "win": {
+      "target": [
+        "portable"
+      ]
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.healthcare-fitness",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "extendInfo": {
+        "NSBluetoothAlwaysUsageDescription": "WagVitals connects to your dog's collar over Bluetooth.",
+        "NSBluetoothPeripheralUsageDescription": "WagVitals connects to your dog's collar over Bluetooth."
+      }
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility"
+    },
+    "icon": "app/icon.png"
+  }
+}

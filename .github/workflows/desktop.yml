@@ -1,0 +1,54 @@
+# Builds the desktop app for Windows, macOS and Linux.
+# Run it from the Actions tab ("Build desktop app" → "Run workflow"), or push a
+# tag like v0.1.0 to also publish a GitHub Release with the downloads.
+# Builds only run on demand to save GitHub Actions minutes (macOS minutes
+# count 10x against a private repository's quota).
+name: Build desktop app
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx electron-builder --publish never
+      - uses: actions/upload-artifact@v6
+        with:
+          name: WagVitals-${{ runner.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
