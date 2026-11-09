@@ -6,12 +6,15 @@ import { AnalysisEngine } from '../app/js/analysis/engine.js';
 export const T0 = Date.UTC(2026, 9, 26, 12, 0, 0);
 
 // Run a simulator scenario through parser → hub → engine in simulated time.
-export function runScenario(scenario, seconds, { seed = 7, warmupSec = 15 } = {}) {
-  const model = new CollarModel({ scenario, seed });
+// accelOnly: the collar sends only accelerometer data (no heart rate,
+// temperature or breathing), like the collar used in the final presentation.
+export function runScenario(scenario, seconds, { seed = 7, warmupSec = 15, accelOnly = false } = {}) {
+  const model = new CollarModel({ scenario, seed, accelOnly });
   const hub = new SensorHub();
   const engine = new AnalysisEngine({ hub });
   const counts = {};
   const alerts = new Set();
+  let usedHr = false;
   let last = null;
   for (let s = 0; s < seconds; s++) {
     for (let k = 0; k < 10; k++) {
@@ -23,9 +26,10 @@ export function runScenario(scenario, seconds, { seed = 7, warmupSec = 15 } = {}
     }
     last = engine.tick(T0 + (s + 1) * 1000);
     if (s >= warmupSec && last.activity) counts[last.activity.state] = (counts[last.activity.state] ?? 0) + 1;
+    usedHr ||= Boolean(last.activity?.usedHr);
     for (const a of last.alerts.active) alerts.add(a.id);
   }
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const share = (state) => (counts[state] ?? 0) / total;
-  return { counts, share, alerts, last, engine, hub };
+  return { counts, share, alerts, usedHr, last, engine, hub };
 }

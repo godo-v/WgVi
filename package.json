@@ -30,22 +30,23 @@
     "directories": {
       "output": "dist"
     },
-    "artifactName": "WagVitals-${version}-${os}-${arch}.${ext}",
     "win": {
       "target": [
-        "portable"
-      ]
+        "zip"
+      ],
+      "artifactName": "WagVitals-Windows.${ext}"
     },
     "mac": {
       "target": [
         {
-          "target": "dmg",
+          "target": "zip",
           "arch": [
             "arm64",
             "x64"
           ]
         }
       ],
+      "artifactName": "WagVitals-macOS-${arch}.${ext}",
       "category": "public.app-category.healthcare-fitness",
       "identity": "-",
       "hardenedRuntime": false,
@@ -56,8 +57,10 @@
     },
     "linux": {
       "target": [
-        "AppImage"
+        "zip"
       ],
+      "artifactName": "WagVitals-Linux.${ext}",
+      "executableName": "wagvitals",
       "category": "Utility"
     },
     "icon": "app/icon.png"

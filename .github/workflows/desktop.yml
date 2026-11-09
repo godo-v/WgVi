@@ -1,17 +1,41 @@
-# Builds the desktop app for Windows, macOS and Linux.
-# Run it from the Actions tab ("Build desktop app" → "Run workflow"), or push a
-# tag like v0.1.0 to also publish a GitHub Release with the downloads.
-# Builds only run on demand to save GitHub Actions minutes (macOS minutes
-# count 10x against a private repository's quota).
+# Builds the desktop app for Windows, macOS and Linux as one ZIP file per
+# system and publishes them on the repository's Code tab: under "Releases" on
+# the right, and through the Download links at the top of the README
+# (https://github.com/<owner>/<repo>/releases/latest/download/<file>.zip).
+#
+# Runs by itself whenever the app changes on main, and on demand from the
+# Actions tab ("Build desktop app" → "Run workflow"). A run on any other branch
+# only builds: its ZIPs are kept on the run page for 3 days, so unmerged code
+# never replaces the downloads everyone uses.
+#
+# Cost: about 30 billed Actions minutes per run (macOS minutes count 10x on a
+# private repository), so documentation-only changes don't trigger a build.
 name: Build desktop app
 
 on:
-  workflow_dispatch:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'electron/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+# A newer run replaces one still in progress, so an older build can never
+# overwrite newer downloads.
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TAG: desktop-latest # the one release that always holds the newest ZIPs
+  GH_REPO: ${{ github.repository }}
+  GH_TOKEN: ${{ github.token }}
 
 jobs:
   build:
@@ -29,26 +53,53 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npx electron-builder --publish never
-      - uses: actions/upload-artifact@v6
+
+      - name: Publish the ZIP on the Code tab
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          # The first run creates the release; parallel jobs may race to do it.
+          gh release view "$TAG" > /dev/null 2>&1 ||
+            gh release create "$TAG" --target "$GITHUB_SHA" --latest \
+              --title "WagVitals app (latest build)" --notes "Building…" ||
+            gh release view "$TAG" > /dev/null
+          gh release upload "$TAG" dist/*.zip --clobber
+
+      - name: Keep the ZIP on the run page (branches other than main)
+        if: github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v6
         with:
           name: WagVitals-${{ runner.os }}
-          path: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.AppImage
+          path: dist/*.zip
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 3
 
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
+  release-notes:
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v7
-        with:
-          path: artifacts
-          merge-multiple: true
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/*
-          generate_release_notes: true
+      - name: Point the release at this commit and describe it
+        run: |
+          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true > /dev/null
+          url="https://github.com/$GH_REPO/releases/latest/download"
+          cat > notes.md <<EOF
+          Built automatically from commit ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M UTC').
+
+          Download the ZIP for your computer (not the "Source code" files), unzip it and open the app:
+
+          | System | Download | Then |
+          | --- | --- | --- |
+          | Windows | [WagVitals-Windows.zip]($url/WagVitals-Windows.zip) | Right-click → **Extract All**, open **WagVitals.exe** |
+          | macOS, Apple silicon (M1 or newer) | [WagVitals-macOS-arm64.zip]($url/WagVitals-macOS-arm64.zip) | Double-click to unzip, move **WagVitals** to Applications, open it |
+          | macOS, Intel | [WagVitals-macOS-x64.zip]($url/WagVitals-macOS-x64.zip) | Same as above |
+          | Linux (x64) | [WagVitals-Linux.zip]($url/WagVitals-Linux.zip) | \`unzip WagVitals-Linux.zip -d WagVitals\`, run \`WagVitals/wagvitals\` |
+
+          The app is unsigned (it's a prototype), so the first launch shows a security warning; the README says how to get past it.
+          EOF
+          gh release edit "$TAG" --title "WagVitals app (latest build)" --notes-file notes.md --latest
+          {
+            echo "### Downloads updated"
+            echo
+            tail -n +3 notes.md
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -21,6 +21,7 @@ let profile = { ...DEFAULT_PROFILE, ...storage.get('profile', {}) };
 let settings = {
   fahrenheit: false,
   showAllDevices: false,
+  simAccelOnly: false, // simulator sends only accelerometer data, like the presentation collar
   cloudEnabled: false,
   endpoint: '',
   apiKey: '',
@@ -94,7 +95,11 @@ async function startSimulator() {
     return;
   }
   await stopCollar();
-  const sim = new SimulatedCollar({ scenario: $('sim-scenario').value, restingHr: vitalsFor(profile).restingHr });
+  const sim = new SimulatedCollar({
+    scenario: $('sim-scenario').value,
+    restingHr: vitalsFor(profile).restingHr,
+    accelOnly: settings.simAccelOnly,
+  });
   attach(sim);
   await sim.connect();
   updateButtons();
@@ -239,12 +244,15 @@ function renderBars(el, rows) {
 
 function renderVitals(u) {
   const now = u.now;
+  // Receiving data, but not from this sensor: say so instead of showing
+  // ranges for a reading that never comes (e.g. an accelerometer-only collar).
+  const receiving = Boolean(collar) && hub.lastSampleAt > 0;
   const hrSample = hub.latest.hr;
   const hrRecent = hrSample && now - hrSample.at < ANALYSIS.hrMaxAgeSec * 1000;
   $('hr-value').textContent = u.hr ? Math.round(u.hr) : '—';
-  $('hr-sub').textContent = hrRecent && !u.hr
-    ? 'Poor sensor contact (dog moving?)'
-    : `Resting baseline ${Math.round(u.restingHr)} bpm · normal at rest under ${u.vitals.restingHrMax}`;
+  if (receiving && !hrRecent) $('hr-sub').textContent = 'No heart-rate data from the collar';
+  else if (hrRecent && !u.hr) $('hr-sub').textContent = 'Poor sensor contact (dog moving?)';
+  else $('hr-sub').textContent = `Resting baseline ${Math.round(u.restingHr)} bpm · normal at rest under ${u.vitals.restingHrMax}`;
   const hrPoints = hub.hrHistory.filter((h) => h.quality >= ANALYSIS.hrMinQuality && now - h.at < 300_000).map((h) => [h.at, h.bpm]);
   drawLines($('hr-chart'), [{ points: hrPoints, color: '--line' }]);
 
@@ -252,14 +260,16 @@ function renderVitals(u) {
   const t = VITALS.tempC;
   $('temp-unit').textContent = settings.fahrenheit ? '°F' : '°C';
   $('temp-value').textContent = temp ? formatTemp(temp.celsius + VITALS.tempOffsetC) : '—';
-  $('temp-sub').textContent = `Normal ${formatTemp(t.normalLow)}–${formatTemp(t.normalHigh)} ${settings.fahrenheit ? '°F' : '°C'}`;
+  $('temp-sub').textContent = receiving && !temp
+    ? 'No temperature data from the collar'
+    : `Normal ${formatTemp(t.normalLow)}–${formatTemp(t.normalHigh)} ${settings.fahrenheit ? '°F' : '°C'}`;
 
   const resp = hub.fresh('resp', now);
   $('resp-value').textContent = resp ? Math.round(resp.bpm) : '—';
   const resting = u.activity?.state === 'resting' || u.activity?.state === 'sleeping';
-  $('resp-sub').textContent = resting
-    ? `At rest: normally under ${VITALS.respRestingMax}/min`
-    : 'Fast breathing and panting are normal during exercise';
+  if (receiving && !resp) $('resp-sub').textContent = 'No breathing data from the collar';
+  else if (resting) $('resp-sub').textContent = `At rest: normally under ${VITALS.respRestingMax}/min`;
+  else $('resp-sub').textContent = 'Fast breathing and panting are normal during exercise';
 }
 
 function formatTemp(celsius) {
@@ -396,6 +406,7 @@ $('btn-settings').onclick = () => {
   form.ageYears.value = profile.ageYears ?? '';
   form.fahrenheit.checked = settings.fahrenheit;
   form.showAllDevices.checked = settings.showAllDevices;
+  form.simAccelOnly.checked = settings.simAccelOnly;
   form.cloudEnabled.checked = settings.cloudEnabled;
   form.endpoint.value = settings.endpoint;
   form.apiKey.value = settings.apiKey;
@@ -419,12 +430,14 @@ $('settings').addEventListener('close', () => {
     ...settings,
     fahrenheit: form.fahrenheit.checked,
     showAllDevices: form.showAllDevices.checked,
+    simAccelOnly: form.simAccelOnly.checked,
     cloudEnabled: form.cloudEnabled.checked,
     endpoint: form.endpoint.value.trim(),
     apiKey: form.apiKey.value.trim(),
   };
   storage.set('profile', profile);
   storage.set('settings', settings);
+  if (collar instanceof SimulatedCollar) collar.setAccelOnly(settings.simAccelOnly);
   engine.resetBaseline();
   cloud.configure(cloudSettings());
   cloud.flush();

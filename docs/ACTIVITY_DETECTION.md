@@ -5,6 +5,14 @@ every second whether the dog is **sleeping, resting, doing light activity
 (sniffing, pottering), walking, running or playing**. All the thresholds live
 in `app/js/config.js`.
 
+**The accelerometer alone is enough.** Every state is decided from movement;
+heart rate only re-weights the decision when the collar sends it (section 3).
+With an accelerometer-only collar the app says "no heart-rate signal:
+accelerometer only" under the activity, sleep is detected from stillness
+alone, and the automated tests check every state in that mode
+(`npm test`, "accelerometer only"). To rehearse it without hardware, turn on
+**Settings → Simulator → Accelerometer data only**.
+
 > **Status:** the thresholds were chosen from published collar-accelerometer
 > work and tuned against the built-in simulator. They have **not** been
 > validated on real dogs yet. Calibrate them with labelled recordings from the
