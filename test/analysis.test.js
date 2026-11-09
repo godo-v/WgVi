@@ -5,6 +5,7 @@ import { ActivityClassifier } from '../app/js/analysis/activity.js';
 import { AlertEngine } from '../app/js/analysis/alerts.js';
 import { vitalsFor, activityGoal } from '../app/js/analysis/profile.js';
 import { mulberry32, gaussian } from '../app/js/util.js';
+import { CollarModel } from '../app/js/ble/simulator.js';
 import { runScenario, T0 } from './helpers.js';
 
 const fs = 25;
@@ -113,6 +114,49 @@ test('simulator end-to-end: a limp lowers gait symmetry and raises an alert', ()
   assert.ok(sound.symmetry > 0.9, `sound ${sound.symmetry}`);
   assert.ok(limp.last.gait.symmetry < 0.85, `limp ${limp.last.gait.symmetry}`);
   assert.ok(limp.alerts.has('gait-asymmetry'));
+});
+
+// The final presentation uses a collar that sends only accelerometer data.
+// Every activity state must still be detected from movement alone.
+test('simulator accelerometer-only mode: same movement, no heart rate, temperature or breathing', () => {
+  const full = new CollarModel({ scenario: 'auto', seed: 5 }).step(10_000);
+  const accelOnly = new CollarModel({ scenario: 'auto', seed: 5, accelOnly: true }).step(10_000);
+  assert.ok(!accelOnly.some((line) => /^[HTR],/.test(line)), 'no H/T/R lines');
+  const accel = (lines) => lines.filter((line) => line.startsWith('A,'));
+  assert.equal(accel(accelOnly).length, 250, '25 Hz for 10 s');
+  assert.deepEqual(accel(accelOnly), accel(full));
+});
+
+for (const [scenario, expected] of Object.entries(expectations)) {
+  test(`accelerometer only: ${scenario} is classified as ${expected}`, () => {
+    for (const seed of [7, 11]) {
+      const { share, usedHr } = runScenario(scenario, 60, { seed, accelOnly: true });
+      assert.equal(usedHr, false);
+      assert.ok(share(expected) > 0.95, `${scenario} seed ${seed}: ${share(expected)}`);
+    }
+  });
+}
+
+test('accelerometer only: playing is mostly playing', () => {
+  for (const seed of [7, 11, 99]) {
+    const { share, counts } = runScenario('playing', 120, { seed, accelOnly: true });
+    assert.ok(share('playing') > 0.65, JSON.stringify(counts));
+    assert.ok(share('walking') + share('running') < 0.05, JSON.stringify(counts));
+  }
+});
+
+test('accelerometer only: sleeping after two minutes of still rest, no vital-sign alerts', () => {
+  const { last, alerts } = runScenario('sleeping', 150, { accelOnly: true });
+  assert.equal(last.activity.state, 'sleeping');
+  assert.equal(last.hr, null);
+  assert.deepEqual([...alerts], []);
+});
+
+test('accelerometer only: auto tour moves through the activities', () => {
+  const { counts } = runScenario('auto', 165, { accelOnly: true });
+  for (const state of ['resting', 'walking', 'running', 'playing', 'light']) {
+    assert.ok(counts[state] > 5, `${state}: ${JSON.stringify(counts)}`);
+  }
 });
 
 test('engine counts time per activity and learns resting HR only after settling', () => {

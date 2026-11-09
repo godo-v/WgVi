@@ -64,13 +64,21 @@ function scenarioState(scenario, elapsedSec) {
   }
 }
 
+// Protocol lines an accelerometer-only collar still sends: accelerometer,
+// gyroscope, battery and info. Heart rate (H), temperature (T) and breathing
+// (R) are left out.
+const ACCEL_ONLY_TYPES = new Set(['A', 'G', 'B', 'I']);
+
 // Deterministic signal model: step(ms) returns the protocol lines the collar
-// would have sent during that time.
+// would have sent during that time. With accelOnly it behaves like a collar
+// that has only the accelerometer: the movement signal is identical, the
+// other sensors stay silent.
 export class CollarModel {
-  constructor({ seed = 42, scenario = 'auto', sampleHz = 25, restingHr = 85 } = {}) {
+  constructor({ seed = 42, scenario = 'auto', sampleHz = 25, restingHr = 85, accelOnly = false } = {}) {
     this.rand = mulberry32(seed);
     this.sampleHz = sampleHz;
     this.restingHr = restingHr;
+    this.accelOnly = accelOnly;
     this.t = 0; // device clock (ms) of the last generated sample
     this.clock = 0; // device clock (ms) we have been asked to reach
     this.scenario = scenario;
@@ -126,7 +134,7 @@ export class CollarModel {
         this.next.battery += 30000;
       }
     }
-    return lines;
+    return this.accelOnly ? lines.filter((line) => ACCEL_ONLY_TYPES.has(line[0])) : lines;
   }
 
   #updateVitals(state, dt) {
@@ -251,9 +259,9 @@ export class SimulatedCollar extends Emitter {
   #timer = null;
   #last = 0;
 
-  constructor({ scenario = 'auto', seed = Date.now() % 1e9, restingHr = 85 } = {}) {
+  constructor({ scenario = 'auto', seed = Date.now() % 1e9, restingHr = 85, accelOnly = false } = {}) {
     super();
-    this.model = new CollarModel({ scenario, seed, restingHr });
+    this.model = new CollarModel({ scenario, seed, restingHr, accelOnly });
   }
 
   get name() {
@@ -267,6 +275,12 @@ export class SimulatedCollar extends Emitter {
   setScenario(scenario) {
     this.model.setScenario(scenario);
     this.emit('line', `> SIM ${scenario}`);
+  }
+
+  setAccelOnly(accelOnly) {
+    if (this.model.accelOnly === accelOnly) return;
+    this.model.accelOnly = accelOnly;
+    this.emit('line', `> SIM ${accelOnly ? 'accelerometer only' : 'all sensors'}`);
   }
 
   async connect() {

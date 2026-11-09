@@ -12,29 +12,44 @@ This is a bare-bones prototype for the senior design project. The same web code
 runs as a desktop app (Electron) today and will be wrapped as an Android APK
 later (see [Roadmap](#roadmap-android-apk)).
 
-## Get the app
+## Download the app
 
-**Option A: download a build (no setup).**
-On GitHub open **Actions → Build desktop app → Run workflow**. When it
-finishes, download the artifact for your system from the run
-page:
+One ZIP file per computer. Nothing to install: unzip it and open the app.
 
-| System | File | First launch |
+| System | Download | Then |
 | --- | --- | --- |
-| Windows | `WagVitals-…-win-x64.exe` (portable, no install) | SmartScreen: **More info → Run anyway** |
-| macOS | `WagVitals-…-mac-arm64.dmg` (Apple silicon) or `-x64.dmg` (Intel) | Drag to Applications, then **right-click → Open** |
-| Linux | `WagVitals-…-linux-x86_64.AppImage` | `chmod +x` then run |
+| Windows | **[WagVitals-Windows.zip](https://github.com/godo-v/WgVi/releases/latest/download/WagVitals-Windows.zip)** | Right-click the ZIP → **Extract All**, then open **WagVitals.exe** in the extracted folder |
+| macOS, Apple silicon (M1 or newer) | **[WagVitals-macOS-arm64.zip](https://github.com/godo-v/WgVi/releases/latest/download/WagVitals-macOS-arm64.zip)** | Double-click the ZIP, move **WagVitals** to Applications, open it |
+| macOS, Intel | **[WagVitals-macOS-x64.zip](https://github.com/godo-v/WgVi/releases/latest/download/WagVitals-macOS-x64.zip)** | Same as above |
+| Linux (x64) | **[WagVitals-Linux.zip](https://github.com/godo-v/WgVi/releases/latest/download/WagVitals-Linux.zip)** | `unzip WagVitals-Linux.zip -d WagVitals`, then run `WagVitals/wagvitals` |
 
-The builds are unsigned (it's a prototype), hence the warnings. Pushing a tag
-such as `v0.1.0` also publishes the files as a GitHub Release.
+The same files are under **Releases** on the right of this page. They are
+rebuilt automatically whenever the app changes on `main` (Actions → Build
+desktop app), so these links always give the newest version. The repository
+is private, so you need to be signed in to GitHub with access to it. Each ZIP
+is about 100–120 MB.
 
-**Option B: run from source** (needs [Node.js](https://nodejs.org) 22+):
+**First launch.** The app is unsigned (it's a prototype), so each system warns
+once:
+
+- **Windows:** SmartScreen says "Windows protected your PC": **More info → Run
+  anyway**. Opening the .exe without extracting the ZIP first doesn't work.
+- **macOS:** right-click **WagVitals** → **Open**. On macOS 15 or newer, try to
+  open it once, then go to **System Settings → Privacy & Security** and click
+  **Open Anyway**. If macOS says the app is "damaged", run
+  `xattr -cr /Applications/WagVitals.app` in Terminal and open it again.
+- **Linux:** if the app closes immediately with a "SUID sandbox" message
+  (Ubuntu 24.04 and newer), run
+  `sudo chown root:root WagVitals/chrome-sandbox && sudo chmod 4755 WagVitals/chrome-sandbox`
+  once.
+
+**Run from source instead** (needs [Node.js](https://nodejs.org) 22+):
 
 ```bash
 npm install
 npm start          # desktop app
 npm run web        # or: browser version at http://localhost:5173 (Chrome/Edge)
-npm test           # 41 automated tests
+npm test           # 49 automated tests
 ```
 
 ## Try it without a collar
@@ -46,6 +61,11 @@ the same parser and analysis, so everything on screen behaves as it will with
 real hardware. Switch scenarios while it runs to see the activity change and
 alerts appear.
 
+To rehearse with exactly what an accelerometer-only collar sends, turn on
+**Settings → Simulator → Accelerometer data only**. Heart rate, temperature and
+breathing then stay empty ("No … data from the collar") and the activity is
+decided from movement alone.
+
 ## Connect the real collar
 
 1. Flash firmware that follows **[docs/BLE_PROTOCOL.md](docs/BLE_PROTOCOL.md)**:
@@ -53,7 +73,10 @@ alerts appear.
    (accelerometer) and `H,123500,92,85` (heart rate). A reference Arduino
    sketch for nRF52840 boards is in
    [`firmware/wagvitals_collar/`](firmware/wagvitals_collar/wagvitals_collar.ino)
-   (untested starting point).
+   (untested starting point). Only the `A` (accelerometer) lines are needed
+   for activity detection: the dog's state (sleeping, resting, light
+   activity, walking, running, playing) comes from movement alone, and heart
+   rate, temperature and breathing are used when the collar sends them.
 2. Turn on Bluetooth on the computer, click **Connect collar**, pick the
    collar.
 3. Open **Bluetooth log** at the bottom of the page to see the raw lines.
@@ -108,7 +131,7 @@ cloud/                  cloud API + Dockerfile
 firmware/               reference nRF52840 sketch (untested)
 docs/                   Bluetooth protocol, activity-detection notes
 test/                   automated tests (node --test)
-.github/workflows/      tests on every push; desktop builds on demand
+.github/workflows/      tests on every push; desktop ZIPs on every app change
 ```
 
 ## Roadmap: Android APK

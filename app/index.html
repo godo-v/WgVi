@@ -49,6 +49,12 @@
         <div id="act-scores" class="bars" aria-label="Activity scores"></div>
       </section>
 
+      <section class="card wide">
+        <h2>Accelerometer</h2>
+        <canvas id="accel-chart" class="chart" aria-label="Accelerometer x, y, z, last 10 seconds"></canvas>
+        <div class="legend"><span class="k x">x</span><span class="k y">y</span><span class="k z">z</span><span id="accel-sub" class="muted"></span></div>
+      </section>
+
       <section class="card">
         <h2>Heart rate</h2>
         <div class="big"><span id="hr-value">—</span><small>bpm</small></div>
@@ -66,12 +72,6 @@
         <h2>Breathing</h2>
         <div class="big"><span id="resp-value">—</span><small>/min</small></div>
         <div id="resp-sub" class="muted"></div>
-      </section>
-
-      <section class="card wide">
-        <h2>Accelerometer</h2>
-        <canvas id="accel-chart" class="chart" aria-label="Accelerometer x, y, z, last 10 seconds"></canvas>
-        <div class="legend"><span class="k x">x</span><span class="k y">y</span><span class="k z">z</span><span id="accel-sub" class="muted"></span></div>
       </section>
 
       <section class="card">
@@ -146,6 +146,10 @@
           <legend>Display &amp; Bluetooth</legend>
           <label class="check"><input name="fahrenheit" type="checkbox" /> Show temperature in °F</label>
           <label class="check"><input name="showAllDevices" type="checkbox" /> List every nearby Bluetooth device (debugging)</label>
+        </fieldset>
+        <fieldset>
+          <legend>Simulator</legend>
+          <label class="check"><input name="simAccelOnly" type="checkbox" /> Accelerometer data only, like a collar without heart-rate, temperature or breathing sensors</label>
         </fieldset>
         <fieldset>
           <legend>Cloud sync</legend>
