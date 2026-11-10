@@ -23,6 +23,7 @@ export const BLE = {
   temperatureMeasurement: 'temperature_measurement',
   deviceInfoService: 'device_information',
   reconnectAttempts: 3,
+  reconnectDelayMs: 1000, // doubles after each failed attempt
 };
 
 export const ANALYSIS = {

@@ -30,6 +30,11 @@ export function bluetoothSupport() {
   return { ok: true };
 }
 
+// The device connected fine but is not a usable collar. Retrying cannot help.
+export class IncompatibleCollarError extends Error {
+  name = 'IncompatibleCollarError';
+}
+
 export class WebBluetoothCollar extends Emitter {
   device = null;
   rx = null;
@@ -37,6 +42,10 @@ export class WebBluetoothCollar extends Emitter {
   #decoder = new TextDecoder();
   #encoder = new TextEncoder();
   #userDisconnect = false;
+  // True while connect() or the reconnect loop owns the link. Disconnect events
+  // that arrive meanwhile belong to that attempt and must not start another
+  // reconnect loop on top of it.
+  #busy = false;
 
   get name() {
     return this.device?.name || 'WagVitals collar';
@@ -72,7 +81,17 @@ export class WebBluetoothCollar extends Emitter {
     this.#userDisconnect = false;
     this.device = await navigator.bluetooth.requestDevice(request);
     this.device.addEventListener('gattserverdisconnected', this.#onDisconnected);
-    await this.#connectGatt();
+    this.#busy = true;
+    try {
+      await this.#connectGatt();
+    } catch (err) {
+      // The caller reports the error; this transport is finished.
+      this.device.removeEventListener('gattserverdisconnected', this.#onDisconnected);
+      if (this.device.gatt.connected) this.device.gatt.disconnect();
+      throw err;
+    } finally {
+      this.#busy = false;
+    }
   }
 
   async disconnect() {
@@ -122,9 +141,13 @@ export class WebBluetoothCollar extends Emitter {
       services.push('Battery');
     }
 
+    // Service lookups also fail when the link drops halfway, so check that
+    // first: a dropped link is worth retrying, a wrong device is not.
+    if (!this.device.gatt.connected) {
+      throw Object.assign(new Error('The connection dropped while setting up.'), { name: 'NetworkError' });
+    }
     if (!services.length) {
-      server.disconnect();
-      throw new Error(
+      throw new IncompatibleCollarError(
         `${this.name} has none of the WagVitals services (Nordic UART, Heart Rate, Thermometer, Battery). Check the collar firmware.`,
       );
     }
@@ -161,25 +184,36 @@ export class WebBluetoothCollar extends Emitter {
   };
 
   #onDisconnected = async () => {
+    if (this.#busy) return;
     if (this.#userDisconnect) {
       this.emit('status', { state: 'disconnected', message: 'Disconnected' });
       return;
     }
     // Collar walked out of range or rebooted: try to reconnect with backoff.
-    for (let attempt = 1; attempt <= BLE.reconnectAttempts; attempt++) {
-      this.emit('status', {
-        state: 'connecting',
-        message: `Connection lost, reconnecting (${attempt}/${BLE.reconnectAttempts})…`,
-      });
-      await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
-      if (this.#userDisconnect) break;
-      try {
-        await this.#connectGatt();
-        return;
-      } catch {
-        // try again
+    this.#busy = true;
+    try {
+      for (let attempt = 1; attempt <= BLE.reconnectAttempts; attempt++) {
+        this.emit('status', {
+          state: 'connecting',
+          message: `Connection lost, reconnecting (${attempt}/${BLE.reconnectAttempts})…`,
+        });
+        await new Promise((r) => setTimeout(r, BLE.reconnectDelayMs * 2 ** (attempt - 1)));
+        if (this.#userDisconnect) break;
+        try {
+          await this.#connectGatt();
+          return;
+        } catch (err) {
+          if (this.device.gatt.connected) this.device.gatt.disconnect();
+          if (err instanceof IncompatibleCollarError) {
+            this.emit('status', { state: 'error', message: err.message });
+            return;
+          }
+          // otherwise try again
+        }
       }
+      this.emit('status', { state: 'disconnected', message: 'Collar disconnected' });
+    } finally {
+      this.#busy = false;
     }
-    this.emit('status', { state: 'disconnected', message: 'Collar disconnected' });
   };
 }

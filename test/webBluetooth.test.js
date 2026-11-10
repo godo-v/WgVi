@@ -143,6 +143,61 @@ test('a device without WagVitals services is rejected with a clear message', asy
   await assert.rejects(new WebBluetoothCollar().connect(), /none of the WagVitals services/);
 });
 
+// Regression: a collar advertising Heart Rate (0x180D) with no characteristics
+// used to make the app connect and disconnect forever, because rejecting the
+// device fired 'gattserverdisconnected', which started a reconnect loop, whose
+// own rejections fired the event again.
+test('rejecting an incompatible collar does not start a reconnect loop', async () => {
+  BLE.reconnectDelayMs = 1;
+  let connects = 0;
+  const realConnect = fake.device.gatt.connect;
+  fake.device.gatt.connect = async function () {
+    connects++;
+    const server = await realConnect.call(this);
+    return { ...server, getPrimaryService: async () => ({ getCharacteristic: async () => Promise.reject(new Error('none')) }) };
+  };
+  const collar = new WebBluetoothCollar();
+  const statuses = [];
+  collar.on('status', (s) => statuses.push(s.state));
+  await assert.rejects(collar.connect(), /none of the WagVitals services/);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(connects, 1);
+  assert.equal(collar.isConnected, false);
+  assert.deepEqual(statuses, ['connecting']);
+});
+
+test('a lost connection is retried a limited number of times, without overlapping', async () => {
+  BLE.reconnectDelayMs = 1;
+  const collar = new WebBluetoothCollar();
+  await collar.connect();
+  const statuses = [];
+  collar.on('status', (s) => statuses.push(s));
+  let connects = 0;
+  fake.device.gatt.connect = async function () {
+    connects++;
+    // the link comes up and drops again straight away
+    this.connected = true;
+    this.disconnect();
+    throw Object.assign(new Error('gone'), { name: 'NetworkError' });
+  };
+  fake.device.gatt.disconnect();
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(connects, BLE.reconnectAttempts);
+  assert.equal(statuses.at(-1).message, 'Collar disconnected');
+});
+
+test('a collar that comes back is reconnected', async () => {
+  BLE.reconnectDelayMs = 1;
+  const collar = new WebBluetoothCollar();
+  await collar.connect();
+  const statuses = [];
+  collar.on('status', (s) => statuses.push(s.state));
+  fake.device.gatt.disconnect();
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(statuses.at(-1), 'connected');
+  assert.equal(collar.isConnected, true);
+});
+
 test('acceptAllDevices option lists every device (debugging)', async () => {
   await new WebBluetoothCollar().connect({ acceptAllDevices: true });
   assert.equal(lastRequest.acceptAllDevices, true);

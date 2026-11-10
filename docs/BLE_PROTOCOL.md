@@ -31,6 +31,11 @@ so off-the-shelf sensors and sample code work too:
 | Health Thermometer `0x1809` | Temperature Measurement `0x2A1C` | temperature |
 | Battery `0x180F` | Battery Level `0x2A19` | battery % |
 
+A service the collar advertises must contain its characteristics. A bare
+service (for example Heart Rate `0x180D` with no Heart Rate Measurement) gives
+the app nothing to subscribe to, and it will refuse the device with "has none
+of the WagVitals services".
+
 Pairing is not required. If pairing is enabled, use "Just Works".
 
 ## 2. Collar → app messages
