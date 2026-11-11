@@ -9,7 +9,7 @@
 
 import { BLE } from '../config.js';
 import { Emitter } from '../util.js';
-import { LineBuffer, parseLine, parseBatteryLevel } from './protocol.js';
+import { LineBuffer, parseLine, parseBatteryLevel, parsePlainNumbers, PlainAccelDecoder } from './protocol.js';
 
 // The collar measures movement only. Heart rate, temperature and breathing
 // shown in the app are simulated, so any the collar sends are ignored.
@@ -39,6 +39,7 @@ export class WebBluetoothCollar extends Emitter {
   // Connected, but the collar has no service that carries data.
   dataless = false;
   #lines = new LineBuffer();
+  #plain = new PlainAccelDecoder();
   #decoder = new TextDecoder();
   #encoder = new TextEncoder();
   #userDisconnect = false;
@@ -118,6 +119,8 @@ export class WebBluetoothCollar extends Emitter {
     this.emit('status', { state: 'connecting', message: `Connecting to ${this.name}…` });
     const server = await this.device.gatt.connect();
     const services = [];
+    this.#lines = new LineBuffer(); // drop half a line left from a previous link
+    this.#plain = new PlainAccelDecoder();
 
     // Main data stream: Nordic UART Service
     try {
@@ -139,6 +142,9 @@ export class WebBluetoothCollar extends Emitter {
     // (0x180D): it identifies the collar but carries no data.
     const identifiedOnly = !services.length && (await this.#hasService(server, BLE.heartRateService));
     this.dataless = identifiedOnly;
+    // Like Bluefruit Connect's Info screen: what the collar offers.
+    const hasHr = await this.#hasService(server, BLE.heartRateService);
+    this.emit('line', `# Services: Nordic UART ${services.includes('UART') ? 'yes' : 'NO'}, Battery ${services.includes('Battery') ? 'yes' : 'no'}, Heart Rate 0x180D ${hasHr ? 'yes (ignored)' : 'no'}`);
 
     // Service lookups also fail when the link drops halfway, so check that
     // first: a dropped link is worth retrying, a wrong device is not.
@@ -194,10 +200,22 @@ export class WebBluetoothCollar extends Emitter {
     const text = this.#decoder.decode(event.target.value, { stream: true });
     for (const line of this.#lines.push(text)) {
       this.emit('line', line);
-      const sample = parseLine(line);
+      const sample = parseLine(line) ?? this.#plainSample(line);
       if (sample && !COLLAR_IGNORED.has(sample.type)) this.emit('sample', sample);
     }
   };
+
+  // Lines of bare numbers (Bluefruit Plotter style) are read as x, y, z.
+  #plainSample(line) {
+    const values = parsePlainNumbers(line);
+    if (!values) return null;
+    const { sample, decided } = this.#plain.decode(values);
+    if (decided) {
+      const label = { 'm/s2': 'm/s²', g: 'g', mg: 'milli-g' }[decided];
+      this.emit('line', `# Plain x y z numbers detected, reading them as ${label}`);
+    }
+    return sample;
+  }
 
   #onDisconnected = async () => {
     if (this.#busy) return;

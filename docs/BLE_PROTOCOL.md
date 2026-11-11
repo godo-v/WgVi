@@ -78,6 +78,21 @@ Rules:
 - Lines can be split across BLE notifications, and one notification can carry
   several lines. The app reassembles them.
 
+### Plain numbers (Bluefruit Plotter style)
+
+The app also accepts what the Bluefruit Connect **Plotter** accepts: a line of
+bare numbers separated by commas, semicolons, spaces or tabs, for example
+`0.12 -9.81 0.35`. The first three numbers are read as accelerometer x, y, z.
+There is no timestamp, so the app uses the arrival time. The unit is worked out
+from gravity over the first 10 lines: about 9.8 means m/s² (what the Adafruit
+LSM6DS library reports), about 1 means g, about 1000 means milli-g. The
+Bluetooth log says which one it picked. Prefer the `A,ms,x,y,z` format when you
+can: its timestamps make the activity analysis more accurate.
+
+Bluefruit Connect's **Controller → Accelerometer** screen shows the **phone's**
+accelerometer, not the collar's, and only appears when the collar has the
+Nordic UART service.
+
 ## 3. App → collar commands
 
 Written to the RX characteristic, newline-terminated:

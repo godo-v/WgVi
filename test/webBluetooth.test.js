@@ -246,6 +246,53 @@ test('the team IMU sketch streams accelerometer lines the app turns into g', asy
   assert.equal(collar.dataless, false);
 });
 
+// What the Bluefruit Connect Plotter accepts: bare numbers per line, no type
+// letter, no timestamp, no units, e.g. bleuart.print(x); print(" "); ...
+test('plain "x y z" lines in m/s² (Bluefruit Plotter style) become accelerometer samples', async () => {
+  const collar = new WebBluetoothCollar();
+  const samples = [];
+  const lines = [];
+  collar.on('sample', (s) => samples.push(s));
+  collar.on('line', (l) => lines.push(l));
+  await collar.connect();
+  samples.length = 0;
+  const enc = new TextEncoder();
+  // split across 20-byte notifications, mixed separators, \r\n endings
+  const text = '0.12 -9.81 0.35\r\n' + '0.20,-9.78,0.30\r\n'.repeat(11) + '1.5\t-9.6\t-0.2\r\n';
+  const bytes = enc.encode(text);
+  for (let i = 0; i < bytes.length; i += 20) fake.tx.notify(bytes.slice(i, i + 20));
+  assert.equal(samples.length, 13);
+  assert.ok(samples.every((s) => s.type === 'accel'));
+  assert.deepEqual(samples[0], { type: 'accel', t: null, x: 0.012, y: -1.0, z: 0.036 });
+  assert.deepEqual(samples.at(-1), { type: 'accel', t: null, x: 0.153, y: -0.979, z: -0.02 });
+  assert.ok(lines.includes('# Plain x y z numbers detected, reading them as m/s²'));
+});
+
+test('plain numbers in g or milli-g are recognised from the size of gravity', async () => {
+  for (const [scale, label] of [[1, 'g'], [1000, 'milli-g']]) {
+    fake = fakeCollar();
+    const collar = new WebBluetoothCollar();
+    const samples = [];
+    const lines = [];
+    collar.on('sample', (s) => samples.push(s));
+    collar.on('line', (l) => lines.push(l));
+    await collar.connect();
+    samples.length = 0;
+    const row = [0.02, -0.99, 0.1].map((v) => v * scale).join(',');
+    fake.tx.notify(new TextEncoder().encode(`${row}\n`.repeat(12)));
+    assert.ok(lines.includes(`# Plain x y z numbers detected, reading them as ${label}`), label);
+    assert.deepEqual(samples.at(-1), { type: 'accel', t: null, x: 0.02, y: -0.99, z: 0.1 }, label);
+  }
+});
+
+test('the connection log lists the collar services, like Bluefruit Info', async () => {
+  const collar = new WebBluetoothCollar();
+  const lines = [];
+  collar.on('line', (l) => lines.push(l));
+  await collar.connect();
+  assert.ok(lines.includes('# Services: Nordic UART yes, Battery yes, Heart Rate 0x180D yes (ignored)'));
+});
+
 test('acceptAllDevices option lists every device (debugging)', async () => {
   await new WebBluetoothCollar().connect({ acceptAllDevices: true });
   assert.equal(lastRequest.acceptAllDevices, true);
