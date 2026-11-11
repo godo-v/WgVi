@@ -32,14 +32,17 @@ export class AnalysisEngine extends Emitter {
     const vitals = vitalsFor(this.getProfile());
     const hub = this.hub;
     const hr = hub.freshHeartRate(now);
+    // Simulated heart rate is for display and alerts only: activity and the
+    // learned resting baseline come from real measurements.
+    const measuredHr = hub.latest.hr?.simulated ? null : hr;
     const window = hub.accelWindow(ANALYSIS.windowSec);
     const accelFresh = window.length && now - window[window.length - 1].at < 2000;
     const features = accelFresh ? accelFeatures(window, { defaultHz: ANALYSIS.defaultSampleHz }) : null;
 
     let activity = null;
     if (features && features.spanSec >= ANALYSIS.windowSec * 0.75) {
-      activity = this.classifier.update({ features, hr, restingHr: this.restingHr(), now });
-      this.#learnRestingHr(activity.state, hr, vitals, now);
+      activity = this.classifier.update({ features, hr: measuredHr, restingHr: this.restingHr(), now });
+      this.#learnRestingHr(activity.state, measuredHr, vitals, now);
       this.gait.update(features, activity.state);
       this.#count(activity.state, now);
     }

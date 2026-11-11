@@ -203,6 +203,24 @@ button.icon {
   grid-column: span 2;
 }
 
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+.card-head h2 {
+  margin: 0;
+}
+
+.vital-sim {
+  max-width: 55%;
+  font-size: 13px;
+  padding: 2px 6px;
+}
+
 .card h2 {
   margin: 0 0 8px;
   font-size: 13px;

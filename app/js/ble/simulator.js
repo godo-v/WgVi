@@ -2,6 +2,9 @@
 // nRF52840 firmware (docs/BLE_PROTOCOL.md) and pushes it through the same
 // parser, so the whole pipeline can be developed and tested before the
 // hardware is ready.
+//
+// In the app it runs accelerometer-only, like the real collar. Heart rate,
+// temperature and breathing come from VitalsSimulator (app/js/vitalsSim.js).
 
 import { Emitter, mulberry32, gaussian } from '../util.js';
 import { parseLine } from './protocol.js';
@@ -15,9 +18,9 @@ export const SCENARIOS = {
   running: 'Running',
   playing: 'Playing',
   limping: 'Walking with a limp',
-  fever: 'Fever (resting, high temperature)',
-  stress: 'Stress (resting, racing heart)',
 };
+// The model also knows 'fever' and 'stress' (used by the tests); in the app
+// those are set with the vital-sign dropdowns instead.
 
 const AUTO_TOUR = [
   ['resting', 25],
@@ -259,7 +262,7 @@ export class SimulatedCollar extends Emitter {
   #timer = null;
   #last = 0;
 
-  constructor({ scenario = 'auto', seed = Date.now() % 1e9, restingHr = 85, accelOnly = false } = {}) {
+  constructor({ scenario = 'auto', seed = Date.now() % 1e9, restingHr = 85, accelOnly = true } = {}) {
     super();
     this.model = new CollarModel({ scenario, seed, restingHr, accelOnly });
   }
@@ -275,12 +278,6 @@ export class SimulatedCollar extends Emitter {
   setScenario(scenario) {
     this.model.setScenario(scenario);
     this.emit('line', `> SIM ${scenario}`);
-  }
-
-  setAccelOnly(accelOnly) {
-    if (this.model.accelOnly === accelOnly) return;
-    this.model.accelOnly = accelOnly;
-    this.emit('line', `> SIM ${accelOnly ? 'accelerometer only' : 'all sensors'}`);
   }
 
   async connect() {

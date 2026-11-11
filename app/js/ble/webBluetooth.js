@@ -9,13 +9,11 @@
 
 import { BLE } from '../config.js';
 import { Emitter } from '../util.js';
-import {
-  LineBuffer,
-  parseLine,
-  parseHeartRateMeasurement,
-  parseTemperatureMeasurement,
-  parseBatteryLevel,
-} from './protocol.js';
+import { LineBuffer, parseLine, parseBatteryLevel } from './protocol.js';
+
+// The collar measures movement only. Heart rate, temperature and breathing
+// shown in the app are simulated, so any the collar sends are ignored.
+const COLLAR_IGNORED = new Set(['hr', 'temp', 'resp']);
 
 export function bluetoothSupport() {
   if (!globalThis.navigator?.bluetooth) {
@@ -38,6 +36,8 @@ export class IncompatibleCollarError extends Error {
 export class WebBluetoothCollar extends Emitter {
   device = null;
   rx = null;
+  // Connected, but the collar has no service that carries data.
+  dataless = false;
   #lines = new LineBuffer();
   #decoder = new TextDecoder();
   #encoder = new TextEncoder();
@@ -73,6 +73,7 @@ export class WebBluetoothCollar extends Emitter {
       : {
           filters: [
             { namePrefix: BLE.deviceNamePrefix },
+            { namePrefix: BLE.firmwareNamePrefix },
             { services: [BLE.nusService] },
             { services: [BLE.heartRateService] },
           ],
@@ -130,29 +131,44 @@ export class WebBluetoothCollar extends Emitter {
       this.rx = null;
     }
 
-    // Optional standard services
-    if (await this.#subscribe(server, BLE.heartRateService, BLE.heartRateMeasurement, parseHeartRateMeasurement)) {
-      services.push('Heart Rate');
-    }
-    if (await this.#subscribe(server, BLE.thermometerService, BLE.temperatureMeasurement, parseTemperatureMeasurement)) {
-      services.push('Thermometer');
-    }
+    // Optional standard service
     if (await this.#subscribe(server, BLE.batteryService, BLE.batteryLevel, parseBatteryLevel, true)) {
       services.push('Battery');
     }
+    // The current collar firmware advertises an empty Heart Rate service
+    // (0x180D): it identifies the collar but carries no data.
+    const identifiedOnly = !services.length && (await this.#hasService(server, BLE.heartRateService));
+    this.dataless = identifiedOnly;
 
     // Service lookups also fail when the link drops halfway, so check that
     // first: a dropped link is worth retrying, a wrong device is not.
     if (!this.device.gatt.connected) {
       throw Object.assign(new Error('The connection dropped while setting up.'), { name: 'NetworkError' });
     }
+    if (identifiedOnly) {
+      this.emit('status', {
+        state: 'connected',
+        message: `Connected to ${this.name}, but its firmware sends no accelerometer data over Bluetooth (no Nordic UART service).`,
+      });
+      this.emit('line', '# Collar has an empty Heart Rate service and no Nordic UART service: nothing to receive.');
+      return;
+    }
     if (!services.length) {
       throw new IncompatibleCollarError(
-        `${this.name} has none of the WagVitals services (Nordic UART, Heart Rate, Thermometer, Battery). Check the collar firmware.`,
+        `${this.name} has none of the WagVitals services (Nordic UART, Battery). Check the collar firmware.`,
       );
     }
     this.emit('status', { state: 'connected', message: `Connected to ${this.name} (${services.join(', ')})` });
     await this.send('START').catch(() => {});
+  }
+
+  async #hasService(server, serviceId) {
+    try {
+      await server.getPrimaryService(serviceId);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async #subscribe(server, serviceId, charId, parse, readFirst = false) {
@@ -179,7 +195,7 @@ export class WebBluetoothCollar extends Emitter {
     for (const line of this.#lines.push(text)) {
       this.emit('line', line);
       const sample = parseLine(line);
-      if (sample) this.emit('sample', sample);
+      if (sample && !COLLAR_IGNORED.has(sample.type)) this.emit('sample', sample);
     }
   };
 

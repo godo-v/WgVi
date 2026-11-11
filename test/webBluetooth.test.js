@@ -80,7 +80,7 @@ beforeEach(() => {
   });
 });
 
-test('connects, subscribes to UART + Heart Rate + Battery and sends START', async () => {
+test('connects, subscribes to UART + Battery and sends START', async () => {
   const collar = new WebBluetoothCollar();
   const statuses = [];
   const samples = [];
@@ -89,9 +89,10 @@ test('connects, subscribes to UART + Heart Rate + Battery and sends START', asyn
   await collar.connect();
 
   assert.deepEqual(lastRequest.filters[0], { namePrefix: 'WagVitals' });
+  assert.deepEqual(lastRequest.filters[1], { namePrefix: 'Wagvitals' }, 'name the current firmware uses');
   assert.ok(lastRequest.optionalServices.includes(BLE.nusService));
   assert.equal(statuses.at(-1).state, 'connected');
-  assert.match(statuses.at(-1).message, /UART, Heart Rate, Battery/);
+  assert.match(statuses.at(-1).message, /\(UART, Battery\)/);
   assert.deepEqual(fake.rx.written, ['START\n']);
   assert.deepEqual(samples, [{ type: 'battery', t: null, percent: 77 }]);
   assert.equal(collar.isConnected, true);
@@ -108,20 +109,45 @@ test('UART text split across notifications becomes samples', async () => {
   const enc = new TextEncoder();
   fake.tx.notify(enc.encode('A,100,10,-990,20\nH,10'));
   fake.tx.notify(enc.encode('0,72,95\nbad line\n'));
-  assert.deepEqual(samples, [
-    { type: 'accel', t: 100, x: 0.01, y: -0.99, z: 0.02 },
-    { type: 'hr', t: 100, bpm: 72, quality: 95 },
-  ]);
+  // Heart rate from the collar is ignored: vitals are simulated in the app.
+  assert.deepEqual(samples, [{ type: 'accel', t: 100, x: 0.01, y: -0.99, z: 0.02 }]);
   assert.ok(lines.includes('bad line'), 'raw lines are logged for debugging');
 });
 
-test('standard Heart Rate Service notifications become samples', async () => {
+test('heart rate from the collar is ignored (vitals are simulated)', async () => {
   const collar = new WebBluetoothCollar();
   const samples = [];
   collar.on('sample', (s) => samples.push(s));
   await collar.connect();
+  samples.length = 0;
   fake.hrm.notify(new Uint8Array([0x00, 81]));
-  assert.equal(samples.at(-1).bpm, 81);
+  fake.tx.notify(new TextEncoder().encode('H,1,81,95\nT,1,38.5\nR,1,20\n'));
+  assert.deepEqual(samples, []);
+});
+
+// The current firmware: named "Wagvitals", advertises Heart Rate 0x180D with
+// no characteristics, and has no Nordic UART service.
+test('collar with only an empty Heart Rate service connects and says it sends no data', async () => {
+  fake.device.name = 'Wagvitals';
+  const realConnect = fake.device.gatt.connect;
+  fake.device.gatt.connect = async function () {
+    const server = await realConnect.call(this);
+    return {
+      ...server,
+      getPrimaryService: async (id) => {
+        if (id !== BLE.heartRateService) throw Object.assign(new Error('not found'), { name: 'NotFoundError' });
+        return { getCharacteristic: async () => Promise.reject(new Error('none')) };
+      },
+    };
+  };
+  const collar = new WebBluetoothCollar();
+  const statuses = [];
+  collar.on('status', (s) => statuses.push(s));
+  await collar.connect();
+  assert.equal(collar.isConnected, true, 'stays connected: no connect/disconnect cycle');
+  assert.equal(collar.dataless, true);
+  assert.equal(statuses.at(-1).state, 'connected');
+  assert.match(statuses.at(-1).message, /sends no accelerometer data over Bluetooth/);
 });
 
 test('user disconnect sends STOP and reports disconnected', async () => {
@@ -154,7 +180,7 @@ test('rejecting an incompatible collar does not start a reconnect loop', async (
   fake.device.gatt.connect = async function () {
     connects++;
     const server = await realConnect.call(this);
-    return { ...server, getPrimaryService: async () => ({ getCharacteristic: async () => Promise.reject(new Error('none')) }) };
+    return { ...server, getPrimaryService: async () => Promise.reject(new Error('none')) };
   };
   const collar = new WebBluetoothCollar();
   const statuses = [];

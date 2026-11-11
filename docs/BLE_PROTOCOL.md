@@ -40,6 +40,11 @@ Pairing is not required. If pairing is enabled, use "Just Works".
 
 ## 2. Collar → app messages
 
+> **Current scope: accelerometer only.** The app ignores `H`, `T` and `R`
+> lines and the standard Heart Rate / Health Thermometer characteristics.
+> Heart rate, temperature and breathing are simulated in the app, chosen from
+> the dropdown on each card. Only `A` lines are needed from the collar.
+
 One ASCII line per reading, terminated by `\n` (`\r\n` is fine):
 
 ```

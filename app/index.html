@@ -25,7 +25,7 @@
       <div class="actions">
         <button id="btn-connect" class="primary">Connect collar</button>
         <span class="sim">
-          <select id="sim-scenario" aria-label="Simulator scenario"></select>
+          <select id="sim-scenario" aria-label="Simulated collar movement"></select>
           <button id="btn-sim">Simulate</button>
         </span>
         <button id="btn-disconnect" hidden>Disconnect</button>
@@ -56,20 +56,29 @@
       </section>
 
       <section class="card">
-        <h2>Heart rate</h2>
+        <div class="card-head">
+          <h2>Heart rate <span class="tag">simulated</span></h2>
+          <select id="sim-hr" class="vital-sim" aria-label="Simulated heart rate"></select>
+        </div>
         <div class="big"><span id="hr-value">—</span><small>bpm</small></div>
         <div id="hr-sub" class="muted"></div>
         <canvas id="hr-chart" class="chart small" aria-label="Heart rate, last 5 minutes"></canvas>
       </section>
 
       <section class="card">
-        <h2>Temperature</h2>
+        <div class="card-head">
+          <h2>Temperature <span class="tag">simulated</span></h2>
+          <select id="sim-temp" class="vital-sim" aria-label="Simulated temperature"></select>
+        </div>
         <div class="big"><span id="temp-value">—</span><small id="temp-unit">°C</small></div>
         <div id="temp-sub" class="muted"></div>
       </section>
 
       <section class="card">
-        <h2>Breathing</h2>
+        <div class="card-head">
+          <h2>Breathing <span class="tag">simulated</span></h2>
+          <select id="sim-resp" class="vital-sim" aria-label="Simulated breathing"></select>
+        </div>
         <div class="big"><span id="resp-value">—</span><small>/min</small></div>
         <div id="resp-sub" class="muted"></div>
       </section>
@@ -146,10 +155,6 @@
           <legend>Display &amp; Bluetooth</legend>
           <label class="check"><input name="fahrenheit" type="checkbox" /> Show temperature in °F</label>
           <label class="check"><input name="showAllDevices" type="checkbox" /> List every nearby Bluetooth device (debugging)</label>
-        </fieldset>
-        <fieldset>
-          <legend>Simulator</legend>
-          <label class="check"><input name="simAccelOnly" type="checkbox" /> Accelerometer data only, like a collar without heart-rate, temperature or breathing sensors</label>
         </fieldset>
         <fieldset>
           <legend>Cloud sync</legend>
