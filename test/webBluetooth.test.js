@@ -224,6 +224,28 @@ test('a collar that comes back is reconnected', async () => {
   assert.equal(collar.isConnected, true);
 });
 
+// firmware/wagvitals_imu: "Wagvitals", empty 0x180D + Nordic UART, sending
+// A,<millis>,<milli-g x>,<y>,<z> converted from the IMU's m/s^2.
+test('the team IMU sketch streams accelerometer lines the app turns into g', async () => {
+  fake.device.name = 'Wagvitals';
+  const collar = new WebBluetoothCollar();
+  const samples = [];
+  collar.on('sample', (s) => samples.push(s));
+  await collar.connect();
+  samples.length = 0;
+  const toMilliG = (ms2) => Math.trunc((ms2 * 1000) / 9.80665); // same as the C (int) cast
+  const line = (t, x, y, z) => `A,${t},${toMilliG(x)},${toMilliG(y)},${toMilliG(z)}\n`;
+  // 20-byte notifications, as with the default BLE packet size
+  const text = line(5040, 0.12, -9.81, 0.35) + line(5080, 1.5, -9.6, -0.2);
+  const bytes = new TextEncoder().encode(text);
+  for (let i = 0; i < bytes.length; i += 20) fake.tx.notify(bytes.slice(i, i + 20));
+  assert.deepEqual(samples, [
+    { type: 'accel', t: 5040, x: 0.012, y: -1.0, z: 0.035 },
+    { type: 'accel', t: 5080, x: 0.152, y: -0.978, z: -0.02 },
+  ]);
+  assert.equal(collar.dataless, false);
+});
+
 test('acceptAllDevices option lists every device (debugging)', async () => {
   await new WebBluetoothCollar().connect({ acceptAllDevices: true });
   assert.equal(lastRequest.acceptAllDevices, true);

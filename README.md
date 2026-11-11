@@ -128,7 +128,7 @@ app/                    the app (plain HTML/CSS/JS, no build step)
   js/cloud/             per-minute summaries + upload queue
 electron/               desktop shell (window, Bluetooth device picker)
 cloud/                  cloud API + Dockerfile
-firmware/               reference nRF52840 sketch (untested)
+firmware/               nRF52840 sketches (untested): wagvitals_imu = team IMU sketch + BLE streaming
 docs/                   Bluetooth protocol, activity-detection notes
 test/                   automated tests (node --test)
 .github/workflows/      tests on every push; desktop ZIPs on every app change
