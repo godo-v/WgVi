@@ -9,6 +9,9 @@
 export const BLE = {
   // The collar should advertise a name starting with this prefix.
   deviceNamePrefix: 'WagVitals',
+  // The current collar firmware calls itself "Wagvitals" (small v). Name
+  // filters are case-sensitive, so both spellings are listed.
+  firmwareNamePrefix: 'Wagvitals',
   // Nordic UART Service (NUS): the standard nRF52840 "serial over BLE" service.
   // All WagVitals sensor data travels over it as text lines (docs/BLE_PROTOCOL.md).
   nusService: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',

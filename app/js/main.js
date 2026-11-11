@@ -11,6 +11,7 @@ import { CLASSES, explain } from './analysis/activity.js';
 import { DEFAULT_PROFILE, vitalsFor, activityGoal } from './analysis/profile.js';
 import { CloudSync, MinuteSummarizer } from './cloud/cloudSync.js';
 import { Recorder } from './recorder.js';
+import { VitalsSimulator, HR_SCENARIOS, TEMP_SCENARIOS, RESP_SCENARIOS } from './vitalsSim.js';
 import { drawLines } from './ui/charts.js';
 
 const $ = (id) => document.getElementById(id);
@@ -21,7 +22,9 @@ let profile = { ...DEFAULT_PROFILE, ...storage.get('profile', {}) };
 let settings = {
   fahrenheit: false,
   showAllDevices: false,
-  simAccelOnly: false, // simulator sends only accelerometer data, like the presentation collar
+  // Heart rate, temperature and breathing are simulated (the collar measures
+  // movement only). One scenario per vital, picked on its card.
+  simVitals: { hr: 'normal', temp: 'normal', resp: 'normal' },
   cloudEnabled: false,
   endpoint: '',
   apiKey: '',
@@ -37,6 +40,7 @@ const engine = new AnalysisEngine({ hub, getProfile: () => profile, totals: stor
 const recorder = new Recorder();
 const summarizer = new MinuteSummarizer();
 const cloud = new CloudSync({ storage });
+const vitalsSim = new VitalsSimulator({ ...settings.simVitals, restingHr: vitalsFor(profile).restingHr });
 const logLines = [];
 let collar = null;
 let pickerActive = false;
@@ -98,7 +102,6 @@ async function startSimulator() {
   const sim = new SimulatedCollar({
     scenario: $('sim-scenario').value,
     restingHr: vitalsFor(profile).restingHr,
-    accelOnly: settings.simAccelOnly,
   });
   attach(sim);
   await sim.connect();
@@ -159,6 +162,26 @@ $('btn-disconnect').onclick = async () => {
 for (const [value, label] of Object.entries(SCENARIOS)) $('sim-scenario').add(new Option(label, value));
 $('sim-scenario').onchange = () => collar instanceof SimulatedCollar && collar.setScenario($('sim-scenario').value);
 
+// ---------- Simulated vitals ----------
+
+const VITAL_DROPDOWNS = { hr: HR_SCENARIOS, temp: TEMP_SCENARIOS, resp: RESP_SCENARIOS };
+for (const [kind, scenarios] of Object.entries(VITAL_DROPDOWNS)) {
+  const select = $(`sim-${kind}`);
+  for (const [value, label] of Object.entries(scenarios)) select.add(new Option(label, value));
+  select.value = scenarios[settings.simVitals[kind]] ? settings.simVitals[kind] : 'normal';
+  select.onchange = () => {
+    vitalsSim.set(kind, select.value);
+    if (select.value === 'off') hub.clear(kind);
+    settings = { ...settings, simVitals: { ...settings.simVitals, [kind]: select.value } };
+    storage.set('settings', settings);
+    pumpVitals();
+  };
+}
+
+function pumpVitals() {
+  for (const sample of vitalsSim.tick(Date.now())) recorder.addSample(hub.ingest(sample));
+}
+
 const support = bluetoothSupport();
 if (!support.ok) {
   $('banner').textContent = `${support.reason} The simulator still works.`;
@@ -168,6 +191,7 @@ if (!support.ok) {
 // ---------- Analysis loop ----------
 
 setInterval(() => {
+  pumpVitals();
   const connected = Boolean(collar?.isConnected);
   const update = engine.tick(Date.now(), { connected });
   recorder.addActivity(update);
@@ -203,8 +227,13 @@ function renderActivity(u) {
   const a = u.activity;
   if (!a) {
     $('act-icon').textContent = '·';
-    $('act-label').textContent = collar ? 'Waiting for movement data' : 'Not connected';
-    $('act-confidence').textContent = collar ? 'Collecting a few seconds of accelerometer data…' : 'Connect the collar or start the simulator.';
+    if (collar?.dataless) {
+      $('act-label').textContent = 'No accelerometer data';
+      $('act-confidence').textContent = 'The collar is connected, but its firmware does not send readings over Bluetooth.';
+    } else {
+      $('act-label').textContent = collar ? 'Waiting for movement data' : 'Not connected';
+      $('act-confidence').textContent = collar ? 'Collecting a few seconds of accelerometer data…' : 'Connect the collar or start the simulator.';
+    }
     $('act-reason').textContent = '';
     $('act-scores').replaceChildren();
     return;
@@ -244,15 +273,13 @@ function renderBars(el, rows) {
 
 function renderVitals(u) {
   const now = u.now;
-  // Receiving data, but not from this sensor: say so instead of showing
-  // ranges for a reading that never comes (e.g. an accelerometer-only collar).
-  const receiving = Boolean(collar) && hub.lastSampleAt > 0;
+  const sim = settings.simVitals;
   const hrSample = hub.latest.hr;
   const hrRecent = hrSample && now - hrSample.at < ANALYSIS.hrMaxAgeSec * 1000;
   $('hr-value').textContent = u.hr ? Math.round(u.hr) : '—';
-  if (receiving && !hrRecent) $('hr-sub').textContent = 'No heart-rate data from the collar';
+  if (sim.hr === 'off') $('hr-sub').textContent = 'Simulation off (the collar has no heart-rate sensor)';
   else if (hrRecent && !u.hr) $('hr-sub').textContent = 'Poor sensor contact (dog moving?)';
-  else $('hr-sub').textContent = `Resting baseline ${Math.round(u.restingHr)} bpm · normal at rest under ${u.vitals.restingHrMax}`;
+  else $('hr-sub').textContent = `Typical resting ${Math.round(u.restingHr)} bpm · normal at rest under ${u.vitals.restingHrMax}`;
   const hrPoints = hub.hrHistory.filter((h) => h.quality >= ANALYSIS.hrMinQuality && now - h.at < 300_000).map((h) => [h.at, h.bpm]);
   drawLines($('hr-chart'), [{ points: hrPoints, color: '--line' }]);
 
@@ -260,16 +287,16 @@ function renderVitals(u) {
   const t = VITALS.tempC;
   $('temp-unit').textContent = settings.fahrenheit ? '°F' : '°C';
   $('temp-value').textContent = temp ? formatTemp(temp.celsius + VITALS.tempOffsetC) : '—';
-  $('temp-sub').textContent = receiving && !temp
-    ? 'No temperature data from the collar'
+  $('temp-sub').textContent = sim.temp === 'off'
+    ? 'Simulation off (the collar has no temperature sensor)'
     : `Normal ${formatTemp(t.normalLow)}–${formatTemp(t.normalHigh)} ${settings.fahrenheit ? '°F' : '°C'}`;
 
   const resp = hub.fresh('resp', now);
   $('resp-value').textContent = resp ? Math.round(resp.bpm) : '—';
   const resting = u.activity?.state === 'resting' || u.activity?.state === 'sleeping';
-  if (receiving && !resp) $('resp-sub').textContent = 'No breathing data from the collar';
+  if (sim.resp === 'off') $('resp-sub').textContent = 'Simulation off (the collar has no breathing sensor)';
   else if (resting) $('resp-sub').textContent = `At rest: normally under ${VITALS.respRestingMax}/min`;
-  else $('resp-sub').textContent = 'Fast breathing and panting are normal during exercise';
+  else $('resp-sub').textContent = `Normally under ${VITALS.respRestingMax}/min at rest; panting is normal during exercise`;
 }
 
 function formatTemp(celsius) {
@@ -406,7 +433,6 @@ $('btn-settings').onclick = () => {
   form.ageYears.value = profile.ageYears ?? '';
   form.fahrenheit.checked = settings.fahrenheit;
   form.showAllDevices.checked = settings.showAllDevices;
-  form.simAccelOnly.checked = settings.simAccelOnly;
   form.cloudEnabled.checked = settings.cloudEnabled;
   form.endpoint.value = settings.endpoint;
   form.apiKey.value = settings.apiKey;
@@ -430,14 +456,13 @@ $('settings').addEventListener('close', () => {
     ...settings,
     fahrenheit: form.fahrenheit.checked,
     showAllDevices: form.showAllDevices.checked,
-    simAccelOnly: form.simAccelOnly.checked,
     cloudEnabled: form.cloudEnabled.checked,
     endpoint: form.endpoint.value.trim(),
     apiKey: form.apiKey.value.trim(),
   };
   storage.set('profile', profile);
   storage.set('settings', settings);
-  if (collar instanceof SimulatedCollar) collar.setAccelOnly(settings.simAccelOnly);
+  vitalsSim.restingHr = vitalsFor(profile).restingHr;
   engine.resetBaseline();
   cloud.configure(cloudSettings());
   cloud.flush();

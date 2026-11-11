@@ -52,6 +52,58 @@ export function parseLine(line) {
   return parser(time, values);
 }
 
+// ---- Plain numbers, as the Bluefruit Connect Plotter accepts them ----
+//
+// Many sketches print readings straight from the IMU library:
+//   bleuart.print(x); bleuart.print(" "); bleuart.print(y); ... println(z);
+// i.e. a line of numbers separated by commas, semicolons, spaces or tabs, with
+// no type letter, no timestamp and no units. The Bluefruit Plotter graphs such
+// lines; the WagVitals protocol above would drop them. The first three numbers
+// are taken as accelerometer x, y, z (a 6-value line is usually accel + gyro).
+
+const PLAIN_SPLIT = /[,;\s]+/;
+const GRAVITY = 9.80665;
+
+// Numbers of a plain line, or null if it is not a line of 3+ numbers.
+export function parsePlainNumbers(line) {
+  const parts = line.trim().split(PLAIN_SPLIT).filter(Boolean);
+  if (parts.length < 3) return null;
+  const values = parts.map(Number);
+  return values.every(Number.isFinite) ? values : null;
+}
+
+// Plain numbers carry no units. The Adafruit sensor libraries report m/s²
+// (what the team's sketch prints), but sketches also send g or milli-g. The
+// size of gravity tells them apart: a collar measures about 1 g overall, so
+// the median magnitude of the first samples is ~9.8 (m/s²), ~1 (g) or ~1000
+// (milli-g). Until enough samples are in, m/s² is assumed.
+export class PlainAccelDecoder {
+  #magnitudes = [];
+  unit = null; // 'm/s2' | 'g' | 'mg' once decided
+
+  static SAMPLES_TO_DECIDE = 10;
+  static SCALE = { 'm/s2': 1 / GRAVITY, g: 1, mg: 1 / 1000 };
+
+  // Returns { sample, decided } where decided is the unit if it was settled now.
+  decode(values) {
+    const [x, y, z] = values;
+    let decided = null;
+    if (!this.unit) {
+      this.#magnitudes.push(Math.hypot(x, y, z));
+      if (this.#magnitudes.length >= PlainAccelDecoder.SAMPLES_TO_DECIDE) {
+        const sorted = [...this.#magnitudes].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        this.unit = median > 200 ? 'mg' : median > 3 ? 'm/s2' : 'g';
+        decided = this.unit;
+      }
+    }
+    const scale = PlainAccelDecoder.SCALE[this.unit ?? 'm/s2'];
+    const g = [x, y, z].map((v) => Math.round(v * scale * 1000) / 1000);
+    if (!g.every((v) => Math.abs(v) <= 16)) return { sample: null, decided };
+    return { sample: { type: 'accel', t: null, x: g[0], y: g[1], z: g[2] }, decided };
+  }
+}
+
 // BLE notifications are limited by the MTU (often 20-244 bytes), so a line can
 // be split across notifications or several lines can share one. LineBuffer
 // reassembles complete lines.

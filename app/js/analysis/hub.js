@@ -12,13 +12,13 @@ export class SensorHub extends Emitter {
   gyro = [];
   hrHistory = []; // {at, bpm, quality}
   latest = {}; // newest sample of each type
-  lastSampleAt = 0;
+  lastSampleAt = 0; // last reading from the collar (simulated vitals don't count)
   counts = {};
 
   ingest(sample) {
     const at = sample.at ?? Date.now();
     const s = { ...sample, at };
-    this.lastSampleAt = at;
+    if (!s.simulated) this.lastSampleAt = at;
     this.latest[s.type] = s;
     this.counts[s.type] = (this.counts[s.type] ?? 0) + 1;
 
@@ -59,6 +59,12 @@ export class SensorHub extends Emitter {
   fresh(type, now = Date.now(), maxAgeSec = ANALYSIS.staleVitalSec) {
     const s = this.latest[type];
     return s && now - s.at <= maxAgeSec * 1000 ? s : null;
+  }
+
+  // Forget one kind of reading, e.g. when its simulation is switched off.
+  clear(type) {
+    delete this.latest[type];
+    if (type === 'hr') this.hrHistory = [];
   }
 
   reset() {
